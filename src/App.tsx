@@ -3,6 +3,7 @@ import { MainApp } from './components/MainApp';
 import { AuthScreen } from './components/AuthScreen';
 import { auth } from './firebase';
 import { onAuthStateChanged, User } from 'firebase/auth';
+import { unlockSpeech } from './utils/audio';
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -14,6 +15,21 @@ export default function App() {
       setLoading(false);
     });
     return () => unsubscribe();
+  }, []);
+
+  // Global user interaction listener to unlock SpeechSynthesis on mobile/iOS
+  useEffect(() => {
+    const handleInteraction = () => {
+      unlockSpeech();
+    };
+
+    window.addEventListener('click', handleInteraction, { capture: true, once: false });
+    window.addEventListener('touchstart', handleInteraction, { capture: true, once: false });
+
+    return () => {
+      window.removeEventListener('click', handleInteraction, { capture: true });
+      window.removeEventListener('touchstart', handleInteraction, { capture: true });
+    };
   }, []);
 
   return (
