@@ -1,0 +1,49 @@
+{
+  "collections": [
+    {
+      "collectionName": "users",
+      "description": "User profiles and settings.",
+      "fields": [
+        { "name": "coins", "type": "Number", "description": "Number of coins the user has." },
+        { "name": "currentBook", "type": "String", "description": "The ID of the currently selected vocabulary book." },
+        { "name": "petOutfit", "type": "String", "description": "The current outfit of the pet." }
+      ],
+      "rules": {
+        "read": "request.auth != null && request.auth.uid == resource.id",
+        "write": "request.auth != null && request.auth.uid == resource.id"
+      },
+      "subcollections": [
+        {
+          "collectionName": "progress",
+          "description": "User's progress on individual words.",
+          "fields": [
+            { "name": "familiarity", "type": "Number", "description": "Familiarity level of the word (0-3)." },
+            { "name": "nextReviewTime", "type": "Timestamp", "description": "When the word should be reviewed next." },
+            { "name": "lastReviewedAt", "type": "Timestamp", "description": "When the word was last reviewed." },
+            { "name": "book", "type": "String", "description": "The book this word belongs to." }
+          ],
+          "rules": {
+            "read": "request.auth != null && request.auth.uid == userId",
+            "write": "request.auth != null && request.auth.uid == userId"
+          }
+        }
+      ]
+    },
+    {
+      "collectionName": "words",
+      "description": "Global vocabulary words.",
+      "fields": [
+        { "name": "book", "type": "String", "description": "The book this word belongs to (e.g., 'cet4', 'ky')." },
+        { "name": "english", "type": "String", "description": "The English word." },
+        { "name": "phonetic", "type": "String", "description": "Phonetic transcription." },
+        { "name": "definition", "type": "String", "description": "Definition in Chinese." },
+        { "name": "exampleEn", "type": "String", "description": "Example sentence in English." },
+        { "name": "exampleZh", "type": "String", "description": "Example sentence translation in Chinese." }
+      ],
+      "rules": {
+        "read": "request.auth != null",
+        "write": "false"
+      }
+    }
+  ]
+}
