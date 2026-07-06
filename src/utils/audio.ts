@@ -1,4 +1,23 @@
 let isUnlocked = false;
+let voicesCache: SpeechSynthesisVoice[] = [];
+let activeAudio: HTMLAudioElement | null = null;
+
+// Pre-load voices and handle dynamic loading on mobile/desktop browsers
+const loadVoices = () => {
+  if (typeof window === 'undefined' || !window.speechSynthesis) return;
+  try {
+    voicesCache = window.speechSynthesis.getVoices() || [];
+  } catch (e) {
+    console.warn('Failed to load speech voices:', e);
+  }
+};
+
+if (typeof window !== 'undefined' && window.speechSynthesis) {
+  loadVoices();
+  if ('onvoiceschanged' in window.speechSynthesis) {
+    window.speechSynthesis.onvoiceschanged = loadVoices;
+  }
+}
 
 export const unlockSpeech = () => {
   if (isUnlocked || typeof window === 'undefined' || !window.speechSynthesis) return;
@@ -14,45 +33,84 @@ export const unlockSpeech = () => {
   }
 };
 
-export const playAudio = (text: string) => {
-  if (!text) return;
+// Find the best English voice matching BCP-47 tags and high-quality keywords
+const getBestEnglishVoice = (): SpeechSynthesisVoice | null => {
+  const currentVoices = voicesCache.length > 0
+    ? voicesCache
+    : (typeof window !== 'undefined' && window.speechSynthesis ? window.speechSynthesis.getVoices() : []);
+
+  if (!currentVoices || currentVoices.length === 0) return null;
+
+  // Filter to keep only English voices
+  const enVoices = currentVoices.filter(v => v.lang.toLowerCase().startsWith('en'));
+  if (enVoices.length === 0) return null;
+
+  // Search preferences:
+  // 1. Premium/Natural sounding English voices (Google, Siri, Samantha, Microsoft)
+  const preferredKeywords = ['google', 'siri', 'samantha', 'premium', 'natural', 'microsoft', 'daniel', 'karen'];
+  for (const keyword of preferredKeywords) {
+    const found = enVoices.find(v =>
+      v.name.toLowerCase().includes(keyword) &&
+      (v.lang.toLowerCase().includes('us') || v.lang.toLowerCase().includes('gb'))
+    );
+    if (found) return found;
+  }
+
+  // 2. Standard US English voice
+  const usVoice = enVoices.find(v => v.lang.toLowerCase().startsWith('en-us'));
+  if (usVoice) return usVoice;
+
+  // 3. Fallback to any English voice
+  return enVoices[0];
+};
+
+// Fallback to local TTS if online dictionary fails
+export const playLocalTTS = (text: string) => {
   if (typeof window === 'undefined' || !window.speechSynthesis || !window.SpeechSynthesisUtterance) {
-    console.warn('Speech synthesis is not supported in this environment.');
+    console.warn('Speech synthesis is not supported.');
     return;
   }
 
-  // Auto unlock on any invocation
-  if (!isUnlocked) {
-    unlockSpeech();
-  }
-
   try {
-    // 1. Cancel any ongoing speech to reset/unlock the iOS/Safari speech queue
     window.speechSynthesis.cancel();
-
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = 'en-US';
-
-    // Set typical rate and pitch for standard clear pronunciation
-    utterance.rate = 0.9;
+    utterance.rate = 0.85;
     utterance.pitch = 1.0;
 
-    // 2. Select an active English voice (crucial for some mobile browsers to avoid silent fallback)
-    const voices = window.speechSynthesis.getVoices();
-    if (voices && voices.length > 0) {
-      // Prefer standard English pronunciation voices
-      const enVoice = voices.find(v => v.lang.startsWith('en-US')) ||
-        voices.find(v => v.lang.startsWith('en-')) ||
-        voices[0];
-      if (enVoice) {
-        utterance.voice = enVoice;
-      }
+    const bestVoice = getBestEnglishVoice();
+    if (bestVoice) {
+      utterance.voice = bestVoice;
+      utterance.lang = bestVoice.lang;
     }
 
-    // 3. Queue and speak
     window.speechSynthesis.speak(utterance);
-  } catch (error) {
-    console.error('Failed to play audio:', error);
+  } catch (err) {
+    console.error('Local TTS failed:', err);
+  }
+};
+
+export const playAudio = (text: string) => {
+  if (!text) return;
+
+  // Try high-quality standard dictionary voice library (NetEase Youdao US Accent)
+  try {
+    if (activeAudio) {
+      activeAudio.pause();
+      activeAudio = null;
+    }
+
+    const audioUrl = `https://dict.youdao.com/dictvoice?type=2&audio=${encodeURIComponent(text.trim())}`;
+    const audio = new Audio(audioUrl);
+    activeAudio = audio;
+
+    audio.play().catch(err => {
+      console.warn('Standard dictionary voice playing was interrupted or failed, falling back to local TTS:', err);
+      playLocalTTS(text);
+    });
+  } catch (e) {
+    console.warn('Failed to load standard online dictionary voice, falling back to local TTS:', e);
+    playLocalTTS(text);
   }
 };
 
