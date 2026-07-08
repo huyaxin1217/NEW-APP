@@ -1,0 +1,8 @@
+{
+  "name": "极简背单词 (Minimalist Vocab)",
+  "description": "A minimalist, glassmorphism-styled vocabulary learning app featuring a pet companion and a growing vocabulary forest.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
