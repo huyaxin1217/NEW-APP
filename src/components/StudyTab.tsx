@@ -128,13 +128,20 @@ export function StudyTab({ outfit, onOpenDressUp, onAddCoins, words, userId, onW
   }, [currentWord?.id, studyMode, words]);
 
   const handleChoiceSelect = (def: string) => {
-    if (Object.keys(choiceStatus).length > 0) return; // already answered
+    // 选对后不再响应点击
+    if (Object.values(choiceStatus).includes('correct')) return;
+    // 同一个错误选项不重复处理
+    if (choiceStatus[def] === 'wrong') return;
+
     if (def === currentWord.definition) {
-      setChoiceStatus({ [def]: 'correct' });
-      handleAction('know');
+      // 正确！保留之前标记的错误选项，追加正确标记
+      setChoiceStatus(prev => ({ ...prev, [def]: 'correct' }));
+      // B方案：选错过一次就算忘记，一次即中才算认识
+      const hadWrong = Object.values(choiceStatus).some(s => s === 'wrong');
+      handleAction(hadWrong ? 'forgot' : 'know');
     } else {
-      setChoiceStatus({ [def]: 'wrong', [currentWord.definition]: 'correct' });
-      handleAction('forgot');
+      // 选错 — 只标记这个选项变红，不揭示正确答案，不给handleAction
+      setChoiceStatus(prev => ({ ...prev, [def]: 'wrong' }));
     }
   };
 

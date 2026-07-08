@@ -1,4 +1,4 @@
-import { collection, doc, getDoc, getDocs, setDoc, updateDoc, query, where, writeBatch, serverTimestamp, Timestamp, onSnapshot, increment, deleteDoc } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, setDoc, updateDoc, query, where, documentId, writeBatch, serverTimestamp, Timestamp, onSnapshot, increment, deleteDoc } from 'firebase/firestore';
 import { db, auth } from '../firebase';
 import { initialWords } from '../data/words';
 import { kaoyanWords } from '../data/kaoyan';
@@ -6,6 +6,24 @@ import { toeflWords } from '../data/toefl';
 import { Word, WordFamiliarity, PetOutfit, UserStats } from '../types';
 
 import { getNextReviewTime } from '../utils/ebbinghaus';
+
+// ──────────────────────────────────────────
+// Cross-reference phonetic index
+// Priority: CET4 → CET6 → TOEFL (later overwrites earlier, so TOEFL wins)
+// ──────────────────────────────────────────
+function buildPhoneticIndex(): Map<string, string> {
+  const map = new Map<string, string>();
+  // CET4 + CET6 (from words.ts)
+  for (const w of initialWords) {
+    if (w.phonetic) map.set(w.english.toLowerCase(), w.phonetic);
+  }
+  // TOEFL (highest priority — overwrites if same word exists)
+  for (const w of toeflWords) {
+    if (w.phonetic) map.set(w.english.toLowerCase(), w.phonetic);
+  }
+  return map;
+}
+const phoneticIndex: Map<string, string> = buildPhoneticIndex();
 
 export const initializeVocabulary = async () => {
   // Static words are loaded directly from local initialWords.
@@ -228,28 +246,59 @@ export const fetchWordsForStudy = async (userId: string, book: string): Promise<
     }
   }
 
-  // Fetch user progress
+  // ──────────────────────────────────────────
+  // Fetch user progress — ONLY for this book, NOT all progress
+  // Uses document ID range query: book_ ≤ id < book` (backtick = chr(96), just after underscore 95)
+  // This is the key optimization that prevents blowing through the 50k/day read quota
+  // ──────────────────────────────────────────
   const progressRef = collection(db, 'users', userId, 'progress');
-  const progressSnap = await getDocs(progressRef);
+  const progressQ = query(
+    progressRef,
+    where(documentId(), '>=', `${book}_`),
+    where(documentId(), '<', book + '`')
+  );
+  const progressSnap = await getDocs(progressQ);
 
   const progressMap = new Map<string, any>();
   progressSnap.forEach(doc => {
     progressMap.set(doc.id, doc.data());
   });
 
+  // ──────────────────────────────────────────
   // Merge static/custom dictionary with user progress
+  // Also resolve phonetic: progress (persisted) > cross-reference > AI fallback
+  // ──────────────────────────────────────────
   return allWords.map(w => {
     const p = progressMap.get(w.id);
     const resolvedFam = p && typeof p.familiarity === 'number' ? (p.familiarity as WordFamiliarity) : 0;
+
+    // Resolve phonetic
+    let phonetic = p?.phonetic || w.phonetic || '';
+    let isPending: boolean | undefined = undefined;
+    if (!phonetic) {
+      // Step 1: cross-reference other word books (TOEFL → CET6 → CET4)
+      const found = phoneticIndex.get(w.english.toLowerCase());
+      if (found) {
+        phonetic = found;
+        // Persist async — don't block, next time it'll be in progress
+        updateWordData(w.id, { phonetic: found } as any);
+      } else {
+        // Step 2: mark for AI fallback (StudyTab's auto-enrichment handles the rest)
+        phonetic = '/pending/';
+        isPending = true;
+      }
+    }
+
     return {
       id: w.id,
       english: w.english,
-      phonetic: w.phonetic,
+      phonetic: phonetic,
       definition: w.definition,
       exampleEn: p?.exampleEn || w.exampleEn,
       exampleZh: p?.exampleZh || w.exampleZh,
       book: w.book,
       familiarity: resolvedFam,
+      ...(isPending !== undefined ? { isPending } : {}),
       progress: p ? {
         familiarity: resolvedFam,
         reviewLevel: p.reviewLevel || 0,
@@ -263,11 +312,13 @@ export const fetchWordsForStudy = async (userId: string, book: string): Promise<
 export const updateWordData = async (wordId: string, data: Partial<Word>) => {
   const userId = auth.currentUser?.uid;
   if (userId) {
-    // Persist custom user-generated word data (such as AI example sentences) in progress subcollection
+    // Persist custom user-generated word data (phonetic, AI examples, pending state) in progress subcollection
     const progressRef = doc(db, 'users', userId, 'progress', wordId);
     await setDoc(progressRef, {
       exampleEn: data.exampleEn,
-      exampleZh: data.exampleZh
+      exampleZh: data.exampleZh,
+      phonetic: data.phonetic,
+      isPending: data.isPending,
     }, { merge: true });
   }
 };
