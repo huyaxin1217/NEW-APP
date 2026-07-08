@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
-    "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
+    "build": "vite build",
     "start": "node dist/server.cjs",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
@@ -14,6 +14,7 @@
   "dependencies": {
     "@google/genai": "^2.4.0",
     "@tailwindcss/vite": "^4.1.14",
+    "@vercel/node": "^3.2.29",
     "@vitejs/plugin-react": "^5.0.4",
     "arpabet-and-ipa-convertor-ts": "^1.0.3",
     "cmu-pronouncing-dictionary": "^3.0.0",
